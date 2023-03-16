@@ -120,11 +120,12 @@ int main(int argc, const char* argv[])
 
         if (!mesh_cache.vertices.empty() && !mesh_cache.indices.empty())
         {
-            printf("%s\n", ai_mesh->mName.C_Str());
+            std::string mesh_name(ai_mesh->mName.C_Str());
+            std::transform(mesh_name.begin(), mesh_name.end(), mesh_name.begin(), std::toupper);
 
             for (auto& [name, value] : MATERIAL_TYPES)
             {
-                if (strstr(ai_mesh->mName.C_Str(), name) != nullptr)
+                if (mesh_name.find(name) != std::string::npos)
                 {
                     mesh_cache.material_type_and_flags = value << 24;
                 }
@@ -132,7 +133,7 @@ int main(int argc, const char* argv[])
 
             for (auto& [name, value] : MATERIAL_FLAGS)
             {
-                if (strstr(ai_mesh->mName.C_Str(), name) != nullptr)
+                if (mesh_name.find(name) != std::string::npos)
                 {
                     mesh_cache.material_type_and_flags |= 1 << value;
                 }
