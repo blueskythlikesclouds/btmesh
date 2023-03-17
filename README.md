@@ -8,7 +8,7 @@ To use btmesh, drag and drop an FBX file onto the executable. The output will be
 
 ## Tags
 
-You can assign material types and flags to collision shapes by appending tags to their names. Tags are case-insensitive. Here's an example:
+You can assign material types and flags to individual meshes by appending tags to their names. Tags are case-insensitive. Here's an example:
 
 ```
 CollisionMesh -> MyCollisionMesh@Grass
