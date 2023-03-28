@@ -76,6 +76,7 @@ int main(int argc, const char* argv[])
         aiComponent_TEXTURES | 
         aiComponent_MATERIALS
     );
+    importer.SetPropertyBool(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, true);
 
     const aiScene* ai_scene = importer.ReadFile(argv[1], 
         aiProcess_Triangulate | 
