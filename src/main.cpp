@@ -166,7 +166,7 @@ int main(int argc, const char* argv[])
 
     btmesh.write<int>(0);
     btmesh.write<int>(3);
-    btmesh.write_offset(16, [&]
+    btmesh.write_offset(16, [&btmesh, &mesh_caches]
     {
         for (auto& mesh_cache : mesh_caches)
         {
@@ -234,6 +234,7 @@ int main(int argc, const char* argv[])
         }
     });
     btmesh.write<int>(mesh_caches.size());
+    btmesh.close();
 
     std::string pccol_file_path = dir_path + file_name_no_ext + ".pccol";
     bina pccol(pccol_file_path.c_str());
@@ -257,6 +258,7 @@ int main(int argc, const char* argv[])
         pccol.write<int>(0);
     });
     pccol.write<int>(1);
+    pccol.close();
 
     return 0;
 }

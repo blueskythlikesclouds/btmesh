@@ -8,7 +8,7 @@ protected:
     struct write_offset_command
     {
         int alignment;
-        std::function<void()> function;
+        std::unique_ptr<std::function<void()>> function;
         size_t offset;
         size_t offset_position;
     };
@@ -41,8 +41,7 @@ public:
 
     ~bina()
     {
-        end_write();
-        fclose(file_);
+        close();
     }
 
     inline void write(void* memory, size_t size)
@@ -61,7 +60,7 @@ public:
     {
         write_offset_command command;
         command.alignment = alignment;
-        command.function = function;
+        command.function = std::make_unique<std::function<void()>>(function);
         command.offset_position = ftell(file_);
 
         write_offset_commands_.push_back(std::move(command));
@@ -72,4 +71,6 @@ public:
     void write_string_offset(const std::string& value);
 
     void align(int alignment) const;
+
+    void close();
 };

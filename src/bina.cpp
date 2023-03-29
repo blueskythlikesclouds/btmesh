@@ -10,7 +10,7 @@ void bina::execute_write_offset_commands(int first, int last)
         write_offset_command.offset = ftell(file_);
 
         const int cur_first = write_offset_commands_.size();
-        write_offset_command.function();
+        (*write_offset_command.function)();
         const int cur_last = write_offset_commands_.size();
 
         execute_write_offset_commands(cur_first, cur_last);
@@ -151,5 +151,15 @@ void bina::align(int alignment) const
     {
         write<char>(0);
         --padding_size;
+    }
+}
+
+void bina::close()
+{
+    if (file_ != nullptr)
+    {
+        end_write();
+        fclose(file_);
+        file_ = nullptr;
     }
 }
