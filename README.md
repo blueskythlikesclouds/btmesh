@@ -8,11 +8,54 @@ To use btmesh, drag and drop an FBX file onto the executable. The output will be
 
 ## Tags
 
-You can assign material types and flags to individual meshes by appending tags to their names. Tags are case-insensitive. Here's an example:
+Appending tags to the names of individual meshes allows you to assign material layers, types, and flags, as well as determine the shape of the mesh. Tags are case-insensitive. Here's an example:
 
 ```
-CollisionMesh -> MyCollisionMesh@Grass
-AlsoCollisionMesh -> AlsoCollisionMesh@Snow@NOT_STAND@slide
+CollisionMesh -> CollisionMesh@GRASS
+WaterMesh -> WaterMesh@Water@Convex@Liquid
+```
+
+### Shapes
+
+```
+@CONVEX
+```
+
+### Layers
+
+```
+@NONE
+@SOLID
+@LIQUID
+@THROUGH
+@CAMERA
+@SOLID_ONEWAY
+@SOLID_THROUGH
+@SOLID_TINY
+@SOLID_DETAIL
+@LEAF
+@LAND
+@RAYBLOCK
+@EVENT
+@RESERVED13
+@RESERVED14
+@PLAYER
+@ENEMY
+@ENEMY_BODY
+@GIMMICK
+@DYNAMICS
+@RING
+@CHARACTER_CONTROL
+@PLAYER_ONLY
+@DYNAMICS_THROUGH
+@ENEMY_ONLY
+@SENSOR_PLAYER
+@SENSOR_RING
+@SENSOR_GIMMICK
+@SENSOR_LAND
+@SENSOR_ALL
+@RESERVED30
+@RESERVED31
 ```
 
 ### Types
@@ -65,12 +108,14 @@ AlsoCollisionMesh -> AlsoCollisionMesh@Snow@NOT_STAND@slide
 @PARKOUR
 @DECELERATE
 @MOVABLE
+@PARKOUR_KNUCKLES
 @PRESS_DEAD
 @RAYBLOCK
 @WALLJUMP
 @PUSH_BOX
 @STRIDER_FLOOR
 @GIANT_TOWER
+@PUSHOUT_LANDING
 @TEST_GRASS
 @TEST_WATER
 ```

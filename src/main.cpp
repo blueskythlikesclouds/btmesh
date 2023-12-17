@@ -1,6 +1,6 @@
 #include "bina.h"
 
-static const std::pair<const char*, int> MATERIAL_TYPES[] =
+static const std::pair<std::string_view, int> TYPES[] =
 {
     { "@NONE", 0 },
     { "@STONE", 1 },
@@ -35,7 +35,43 @@ static const std::pair<const char*, int> MATERIAL_TYPES[] =
     { "@SAND3", 0x1E }
 };
 
-static const std::pair<const char*, int> MATERIAL_FLAGS[] =
+static const std::pair<std::string_view, int> LAYERS[] =
+{
+    { "@NONE", 0 },
+    { "@SOLID", 1 },
+    { "@LIQUID", 2 },
+    { "@THROUGH", 3 },
+    { "@CAMERA", 4 },
+    { "@SOLID_ONEWAY", 5 },
+    { "@SOLID_THROUGH", 6 },
+    { "@SOLID_TINY", 7 },
+    { "@SOLID_DETAIL", 8 },
+    { "@LEAF", 9 },
+    { "@LAND", 10 },
+    { "@RAYBLOCK", 11 },
+    { "@EVENT", 12 },
+    { "@RESERVED13", 13 },
+    { "@RESERVED14", 14 },
+    { "@PLAYER", 15 },
+    { "@ENEMY", 16 },
+    { "@ENEMY_BODY", 17 },
+    { "@GIMMICK", 18 },
+    { "@DYNAMICS", 19 },
+    { "@RING", 20 },
+    { "@CHARACTER_CONTROL", 21 },
+    { "@PLAYER_ONLY", 22 },
+    { "@DYNAMICS_THROUGH", 23 },
+    { "@ENEMY_ONLY", 24 },
+    { "@SENSOR_PLAYER", 25 },
+    { "@SENSOR_RING", 26 },
+    { "@SENSOR_GIMMICK", 27 },
+    { "@SENSOR_LAND", 28 },
+    { "@SENSOR_ALL", 29 },
+    { "@RESERVED30", 30 },
+    { "@RESERVED31", 31 },
+};
+
+static const std::pair<std::string_view, int> FLAGS[] =
 {
     { "@NOT_STAND", 0 },
     { "@BREAKABLE", 1 },
@@ -48,15 +84,113 @@ static const std::pair<const char*, int> MATERIAL_FLAGS[] =
     { "@PARKOUR", 8 },
     { "@DECELERATE", 9 },
     { "@MOVABLE", 0xA },
+    { "@PARKOUR_KNUCKLES", 0xB },
     { "@PRESS_DEAD", 0xC },
     { "@RAYBLOCK", 0xD },
     { "@WALLJUMP", 0xE },
     { "@PUSH_BOX", 0xF },
     { "@STRIDER_FLOOR", 0x10 },
     { "@GIANT_TOWER", 0x11 },
+    { "@PUSHOUT_LANDING", 0x12 },
     { "@TEST_GRASS", 0x14 },
     { "@TEST_WATER", 0x15 }
 };
+
+static bool check_tag_exists(const std::string& value, const std::string_view& tag)
+{
+    const size_t index = value.find(tag);
+    return index != std::string::npos && (index + tag.size() == value.size() || value[index + tag.size()] == '@');
+}
+
+struct ai_mesh_cache
+{
+    bool is_convex_shape;
+    int layer;
+    std::vector<btVector3> vertices;
+    std::vector<short> indices;
+    std::unique_ptr<uint8_t[]> serialized_bvh;
+    int type_and_flags;
+};
+
+static void convert_to_ai_mesh_caches(const aiScene* ai_scene, std::vector<ai_mesh_cache>& mesh_caches, const aiNode* ai_node)
+{
+    if (ai_node->mNumMeshes != 0)
+    {
+        std::string mesh_name(ai_node->mName.C_Str());
+        std::transform(mesh_name.begin(), mesh_name.end(), mesh_name.begin(), std::toupper);
+
+        const bool is_convex_shape = check_tag_exists(mesh_name, "@CONVEX");
+        int layer = 1;
+        int type = 0;
+        int flags = 0;
+
+        for (auto& [name, value] : LAYERS)
+        {
+            if (check_tag_exists(mesh_name, name))
+            {
+                layer = value;
+                break;
+            }
+        }
+
+        for (auto& [name, value] : TYPES)
+        {
+            if (check_tag_exists(mesh_name, name))
+            {
+                type = value;
+                break;
+            }
+        }
+
+        for (auto& [name, value] : FLAGS)
+        {
+            if (check_tag_exists(mesh_name, name))
+            {
+                flags |= 1 << value;
+            }
+        }
+
+        for (int i = 0; i < ai_node->mNumMeshes; i++)
+        {
+            const aiMesh* ai_mesh = ai_scene->mMeshes[ai_node->mMeshes[i]];
+
+            ai_mesh_cache mesh_cache;
+            mesh_cache.is_convex_shape = is_convex_shape;
+            mesh_cache.layer = layer;
+            mesh_cache.type_and_flags = (type << 24) | flags;
+
+            for (int j = 0; j < ai_mesh->mNumVertices; j++)
+            {
+                auto& vertex = ai_mesh->mVertices[j];
+                mesh_cache.vertices.emplace_back(vertex.x, vertex.y, vertex.z);
+            }
+
+            if (!mesh_cache.is_convex_shape)
+            {
+                for (int j = 0; j < ai_mesh->mNumFaces; j++)
+                {
+                    aiFace& ai_face = ai_mesh->mFaces[j];
+                    if (ai_face.mNumIndices == 3)
+                    {
+                        mesh_cache.indices.push_back((short)ai_face.mIndices[0]);
+                        mesh_cache.indices.push_back((short)ai_face.mIndices[1]);
+                        mesh_cache.indices.push_back((short)ai_face.mIndices[2]);
+                    }
+                }
+            }
+
+            if (!mesh_cache.vertices.empty() && (mesh_cache.is_convex_shape || !mesh_cache.indices.empty()))
+            {
+                mesh_caches.push_back(std::move(mesh_cache));
+            }
+        }
+    }
+
+    for (int i = 0; i < ai_node->mNumChildren; i++)
+    {
+        convert_to_ai_mesh_caches(ai_scene, mesh_caches, ai_node->mChildren[i]);
+    }
+}
 
 int main(int argc, const char* argv[])
 {
@@ -87,62 +221,8 @@ int main(int argc, const char* argv[])
         aiProcess_PreTransformVertices
     );
 
-    struct ai_mesh_cache
-    {
-        std::vector<btVector3> vertices;
-        std::vector<short> indices;
-        int material_type_and_flags = 0;
-        std::unique_ptr<uint8_t[]> serialized_bvh;
-    };
-
     std::vector<ai_mesh_cache> mesh_caches;
-
-    for (int i = 0; i < ai_scene->mNumMeshes; i++)
-    {
-        aiMesh* ai_mesh = ai_scene->mMeshes[i];
-        ai_mesh_cache mesh_cache;
-
-        for (int j = 0; j < ai_mesh->mNumVertices; j++)
-        {
-            auto& vertex = ai_mesh->mVertices[j];
-            mesh_cache.vertices.emplace_back(vertex.x, vertex.y, vertex.z);
-        }
-
-        for (int j = 0; j < ai_mesh->mNumFaces; j++)
-        {
-            aiFace& ai_face = ai_mesh->mFaces[j];
-            if (ai_face.mNumIndices == 3)
-            {
-                mesh_cache.indices.push_back((short)ai_face.mIndices[0]);
-                mesh_cache.indices.push_back((short)ai_face.mIndices[1]);
-                mesh_cache.indices.push_back((short)ai_face.mIndices[2]);
-            }
-        }
-
-        if (!mesh_cache.vertices.empty() && !mesh_cache.indices.empty())
-        {
-            std::string mesh_name(ai_mesh->mName.C_Str());
-            std::transform(mesh_name.begin(), mesh_name.end(), mesh_name.begin(), std::toupper);
-
-            for (auto& [name, value] : MATERIAL_TYPES)
-            {
-                if (mesh_name.find(name) != std::string::npos)
-                {
-                    mesh_cache.material_type_and_flags = value << 24;
-                }
-            }
-
-            for (auto& [name, value] : MATERIAL_FLAGS)
-            {
-                if (mesh_name.find(name) != std::string::npos)
-                {
-                    mesh_cache.material_type_and_flags |= 1 << value;
-                }
-            }
-
-            mesh_caches.push_back(std::move(mesh_cache));
-        }
-    }
+    convert_to_ai_mesh_caches(ai_scene, mesh_caches, ai_scene->mRootNode);
 
     std::string file_path = argv[1];
 
@@ -170,67 +250,96 @@ int main(int argc, const char* argv[])
     {
         for (auto& mesh_cache : mesh_caches)
         {
-            btIndexedMesh indexed_mesh;
-            indexed_mesh.m_numTriangles = mesh_cache.indices.size() / 3;
-            indexed_mesh.m_triangleIndexBase = (const unsigned char*)mesh_cache.indices.data();
-            indexed_mesh.m_triangleIndexStride = sizeof(short) * 3;
-            indexed_mesh.m_numVertices = mesh_cache.vertices.size();
-            indexed_mesh.m_vertexBase = (const unsigned char*)mesh_cache.vertices.data();
-            indexed_mesh.m_vertexStride = sizeof(btVector3);
-            indexed_mesh.m_indexType = PHY_SHORT;
-            indexed_mesh.m_vertexType = PHY_FLOAT;
-
-            btVector3 aabb_min(FLT_MAX, FLT_MAX, FLT_MAX);
-            btVector3 aabb_max(FLT_MIN, FLT_MIN, FLT_MIN);
-
-            for (auto& vertex : mesh_cache.vertices)
+            if (mesh_cache.is_convex_shape)
             {
-                aabb_min.setMin(vertex);
-                aabb_max.setMax(vertex);
+                btmesh.write<int>(2); // is_convex_shape
+                btmesh.write<int>(mesh_cache.layer);
+                btmesh.write<int>(mesh_cache.vertices.size());
+                btmesh.write<int>(0);
+                btmesh.write<int>(0);
+                btmesh.write<int>(1);
+                btmesh.write<int>(0);
+                btmesh.write<int>(0);
+                btmesh.write_offset(16, [&btmesh, &mesh_cache]
+                {
+                    for (auto& vertex : mesh_cache.vertices)
+                    {
+                        btmesh.write(vertex.getX());
+                        btmesh.write(vertex.getY());
+                        btmesh.write(vertex.getZ());
+                    }
+                });
+                btmesh.write<size_t>(0);
+                btmesh.write<size_t>(0);
+                btmesh.write_offset(16, [&btmesh, &mesh_cache]
+                {
+                    btmesh.write<int>(mesh_cache.type_and_flags);
+                });
             }
-
-            btTriangleIndexVertexArray vertex_array;
-            vertex_array.addIndexedMesh(indexed_mesh, PHY_SHORT);
-
-            btOptimizedBvh bvh;
-            bvh.build(&vertex_array, true, aabb_min, aabb_max);
-
-            int bvh_size = bvh.calculateSerializeBufferSize();
-            mesh_cache.serialized_bvh = std::make_unique<uint8_t[]>(bvh_size);
-            bvh.serializeInPlace(mesh_cache.serialized_bvh.get(), bvh_size, false);
-
-            btmesh.write<int>(1);
-            btmesh.write<int>(1);
-            btmesh.write<int>(mesh_cache.vertices.size());
-            btmesh.write<int>(mesh_cache.indices.size() / 3);
-            btmesh.write<int>(bvh_size);
-            btmesh.write<int>(mesh_cache.indices.size() / 3);
-            btmesh.write<int>(0);
-            btmesh.write<int>(0);
-            btmesh.write_offset(16, [&btmesh, &mesh_cache]
+            else
             {
+                btIndexedMesh indexed_mesh;
+                indexed_mesh.m_numTriangles = mesh_cache.indices.size() / 3;
+                indexed_mesh.m_triangleIndexBase = (const unsigned char*)mesh_cache.indices.data();
+                indexed_mesh.m_triangleIndexStride = sizeof(short) * 3;
+                indexed_mesh.m_numVertices = mesh_cache.vertices.size();
+                indexed_mesh.m_vertexBase = (const unsigned char*)mesh_cache.vertices.data();
+                indexed_mesh.m_vertexStride = sizeof(btVector3);
+                indexed_mesh.m_indexType = PHY_SHORT;
+                indexed_mesh.m_vertexType = PHY_FLOAT;
+
+                btVector3 aabb_min(FLT_MAX, FLT_MAX, FLT_MAX);
+                btVector3 aabb_max(FLT_MIN, FLT_MIN, FLT_MIN);
+
                 for (auto& vertex : mesh_cache.vertices)
                 {
-                    btmesh.write(vertex.getX());
-                    btmesh.write(vertex.getY());
-                    btmesh.write(vertex.getZ());
+                    aabb_min.setMin(vertex);
+                    aabb_max.setMax(vertex);
                 }
-            });
-            btmesh.write_offset(16, [&btmesh, &mesh_cache]
-            {
-                btmesh.write(mesh_cache.indices.data(), mesh_cache.indices.size() * sizeof(short));
-            });
-            btmesh.write_offset(16, [&btmesh, &mesh_cache, bvh_size]
-            {
-                btmesh.write(mesh_cache.serialized_bvh.get(), bvh_size);
-            });
-            btmesh.write_offset(16, [&btmesh, &mesh_cache]
-            {
-                for (int j = 0; j < mesh_cache.indices.size() / 3; j++)
+
+                btTriangleIndexVertexArray vertex_array;
+                vertex_array.addIndexedMesh(indexed_mesh, PHY_SHORT);
+
+                btOptimizedBvh bvh;
+                bvh.build(&vertex_array, true, aabb_min, aabb_max);
+
+                int bvh_size = bvh.calculateSerializeBufferSize();
+                mesh_cache.serialized_bvh = std::make_unique<uint8_t[]>(bvh_size);
+                bvh.serializeInPlace(mesh_cache.serialized_bvh.get(), bvh_size, false);
+
+                btmesh.write<int>(1); // u16_index_format
+                btmesh.write<int>(mesh_cache.layer);
+                btmesh.write<int>(mesh_cache.vertices.size());
+                btmesh.write<int>(mesh_cache.indices.size() / 3);
+                btmesh.write<int>(bvh_size);
+                btmesh.write<int>(mesh_cache.indices.size() / 3);
+                btmesh.write<int>(0);
+                btmesh.write<int>(0);
+                btmesh.write_offset(16, [&btmesh, &mesh_cache]
                 {
-                    btmesh.write<int>(mesh_cache.material_type_and_flags);
-                }
-            });
+                    for (auto& vertex : mesh_cache.vertices)
+                    {
+                        btmesh.write(vertex.getX());
+                        btmesh.write(vertex.getY());
+                        btmesh.write(vertex.getZ());
+                    }
+                });
+                btmesh.write_offset(16, [&btmesh, &mesh_cache]
+                {
+                    btmesh.write(mesh_cache.indices.data(), mesh_cache.indices.size() * sizeof(short));
+                });
+                btmesh.write_offset(16, [&btmesh, &mesh_cache, bvh_size]
+                {
+                    btmesh.write(mesh_cache.serialized_bvh.get(), bvh_size);
+                });
+                btmesh.write_offset(16, [&btmesh, &mesh_cache]
+                {
+                    for (int j = 0; j < mesh_cache.indices.size() / 3; j++)
+                    {
+                        btmesh.write<int>(mesh_cache.type_and_flags);
+                    }
+                });
+            }
         }
     });
     btmesh.write<int>(mesh_caches.size());
